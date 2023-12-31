@@ -1,1 +1,2 @@
-# Bsc-com-20-19_assignment1
+# GISWebApp
+A GIS Django web app that uses Django, GeoDjango and PostgreSQL

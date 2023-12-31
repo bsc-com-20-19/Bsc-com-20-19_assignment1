@@ -1,0 +1,145 @@
+{% extends "gisMap/base.html" %}
+{% load leaflet_tags %}
+{% load static %}
+
+{% block little_script %}
+    {% leaflet_js %}
+    {% leaflet_css %}
+    <link rel="stylesheet" type="text/css" href="{% static 'gisMap/LeafletClustering/MarkerCluster.css' %}">
+    <link rel="stylesheet" type="text/css" href="{% static 'gisMap/LeafletClustering/MarkerCluster.Default.css' %}">
+    <script src="{% static 'gisMap/LeafletClustering/leaflet.markercluster.js' %}"></script>
+    <script src="{% static 'gisMap/js/index.js' %}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            var current_marker = null, lat, lon, markers;
+
+            var markerPopup = L.popup()
+                                .setContent(` 
+                                <form action=\"{% url 'add_image' %}\" method="POST" enctype="multipart/form-data">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="author" value={{ user.id }}>
+                                    <div class="form-group">
+                                        <label for="lat">Lat:</label><br>
+                                        <input type="text" id="i-lat" name="lat" class="i-input" readonly>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="lon">Lon:</label><br>
+                                        <input type="text" id="i-lon" name="lon" class="i-input" readonly>
+                                    </div>
+                                    {{ form.as_p|escapejs }}
+                                    <button type="submit" id="img-submit" class="btn btn-primary">Save</button>
+                                </form>
+                                `);
+
+            window.addEventListener("map:init", e => {
+                const map = e.detail.map;
+                
+                //position the map view where the last point was added or removed
+                {% if mousepos is not None %}
+                    map.setView(["{{ mousepos.y }}", "{{ mousepos.x }}"]);
+                {% endif %}
+
+                //create a div to place the lat and lon values of the mouse
+                latlngDiv = document.createElement("div");
+                latlngDiv.setAttribute("class", "leaflet-control-scale");
+                latlngDivContent = document.createElement("div");
+                latlngDiv.setAttribute("id", "mouse-latlng");
+                latlngDiv.append(latlngDivContent);
+
+                document.querySelector(".leaflet-bottom.leaflet-bottom").append(latlngDiv);
+                //add the listener to update the values
+                map.addEventListener('mousemove', e => {
+                    document.querySelector("#mouse-latlng").innerHTML = "Lat: " + e.latlng.lat.toFixed(5)+ " Lon: " + e.latlng.lng.toFixed(5);
+                });
+
+                map.addEventListener("click", e => {
+                    if(current_marker !== null) //check if marker already exists and remove it if it does
+                        current_marker.remove();
+
+                    current_marker = L.marker(e.latlng).addTo(map);
+                    lat = e.latlng.lat;
+                    lon = e.latlng.lng;
+
+                    current_marker.bindPopup(markerPopup)
+
+                    //on popup open fill the lat and lon fields and set to readonly
+                    current_marker.addEventListener('popupopen', () => {
+                        fillMarkerLatLon(lat, lon);
+                        deactivateBtn();
+                    });
+
+                    current_marker.addEventListener('dblclick', () => {
+                        current_marker.remove();
+                    })
+
+                    current_marker.openPopup();
+                });
+                
+                //add the images in the database to the map in a cluster
+                markers = new L.markerClusterGroup();
+                let temp_marker;
+                {% for image in images %}
+                    //set temporary marker and append a popup to it with the information
+                    temp_marker = L.marker(["{{ image.location.y }}", "{{ image.location.x }}"]);
+                    //create the popup and bind it
+                    temp_marker.bindPopup(`
+                        <p>{{ image.description }}</p>
+                        <p>Image: <img width="75%" src={{ image.image.url }} alt="Image"></p>
+                        <p>Author: {{ image.author }}</p>
+                        <p>Parish: {{ image.parish_name }}</p>
+                        <p>Municipality: {{ image.parish_name.municipality_name }}</p>
+                        <p>District: {{ image.parish_name.municipality_name.district_name }}</p>
+                        <p>Lat: {{ image.location.y }}</p>
+                        <p>Lon: {{ image.location.x }}</p>
+                        <div class="row">
+                            <form action=\"{% url 'download_image' %}\" method="POST">
+                            {% csrf_token %}
+                                <input type="hidden" id="img_id" name="img_id" value={{ image.id }}>
+                                <button type="submit" class="btn btn-primary btn-sm">Download</button>
+                            </form>
+                            <form action=\"{% url 'remove_image' %}\" method="POST">
+                            {% csrf_token %}
+                                <input type="hidden" id="img_id" name="img_id" value={{ image.id }}>
+                                <button type="submit" class="btn btn-primary btn-sm">Remove</button>
+                            </form>
+                        </div>
+                    `);
+                    markers.addLayer(temp_marker);
+                {% endfor %}
+
+                map.addLayer(markers);
+            }, false);
+
+            function fillMarkerLatLon(lat, lon) {
+                document.querySelector('#i-lat').value = lat;
+                document.querySelector('#i-lon').value= lon;
+            }
+
+            function deactivateBtn() {
+                //deactivate the submit button and only activate it when there is something written in description    
+                document.querySelector('#img-submit').disabled = true;
+                document.querySelector('#id_description').onkeyup = () => {
+                    if(document.querySelector('#id_description').value.length > 0)
+                        document.querySelector('#img-submit').disabled = false;
+                    else
+                        document.querySelector('#img-submit').disabled = true;
+                };
+            }
+        });
+    </script>
+{% endblock %}
+
+{% block body %}
+    <h1>Welcome {{ user.username }} </h1>
+
+    {% leaflet_map "my_map" %}
+
+    {% if message is not None %}
+        <div class="alert alert-danger" role="alert">
+            {{ message }}
+        </div>
+    {% endif %}
+
+    <a class="btn btn-primary" href="{% url 'logout' %}">Logout</a>
+{% endblock %}
